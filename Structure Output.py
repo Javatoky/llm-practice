@@ -10,11 +10,11 @@ SYSTEM_PROMPT = """
 - 请从用户提供的书评文本中提取信息，以 JSON 格式返回
 - 输出示例：
     {
-        title (string): '自私的基因'
-        author (string): '理查德·道金斯'
-        rating (number): 4
-        tags (list[string]): ["生物学", "科普"]
-        summary (string): 用基因的视角重解生命与人性
+        'title': '自私的基因'
+        'author': '理查德·道金斯'
+        'rating': 4
+        'tags (list': ["生物学", "科普"]
+        'summary': 用基因的视角重解生命与人性
     }
 # Output Format:
 - 只按Instructions中的示例回复 **JSON格式** 的提取信息
@@ -31,21 +31,16 @@ client = AsyncOpenAI(
     api_key = QWEN_API_KEY
 )
 
-async def chat(messages:list, user_input: str) -> AsyncIterator[str]:
+async def chat(messages:list[dict], user_input: str) -> str:
     messages.append({"role": 'user', 'content': user_input})
     response = await client.chat.completions.create(
         model=QWEN_MODEL,
         messages=messages,
-        stream = True,
         response_format = {'type': 'json_object'}
     )
-    reply = ''
-    async for chunk in response:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            reply += delta
-            yield delta
+    reply = response.choices[0].message.content
     messages.append({'role': 'assistant', 'content': reply})
+    return reply
 
 test_cases = [
     "最近读了刘慈欣的《三体》，太震撼了！从科学角度构建的宇宙观让人叹为观止，虽然人物塑造稍显薄弱，但整体是一部不可多得的硬科幻神作。打个4分吧。",
@@ -59,11 +54,9 @@ async def main():
         {'role': 'system', 'content': SYSTEM_PROMPT},
     ]
     for test_input in test_cases:
-        response = ''
         if test_input :
             print(f'user: {test_input}')
-            async for token in chat(messages, test_input):
-                response += token
+            response = await chat(messages, test_input)
             print(f'assistant: ', end = '')
             print(json.loads(response))
 
