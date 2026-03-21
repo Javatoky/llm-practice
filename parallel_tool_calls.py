@@ -54,7 +54,7 @@ async def run_tool_call(function_name: str, **kwargs):     # 我的思考：在T
     if not func_and_properties:
         return f"{FunctionNotFound(function_name)}"
     for property in func_and_properties[1]:
-        if not kwargs.get(property):
+        if not (property in kwargs):
             return f"{PropertiesInvalidError(property)}"
     try:
         result = await func_and_properties[0](**kwargs)
@@ -113,11 +113,7 @@ async def main():
         while True:
             message = await chat(messages)
             if tool_calls := message.tool_calls:
-                messages.append({
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [tc.model_dump() for tc in message.tool_calls]
-                })
+                messages.append(message)
                 results = []
                 ids = []
                 for tool_call in tool_calls:
