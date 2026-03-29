@@ -1,0 +1,71 @@
+from pathlib import Path
+
+
+def file_read(file_path: str) -> str:
+    """读取文本"""
+    with open(Path(file_path), "r", encoding = "utf-8") as f:
+        text = f.read()
+    return text
+
+def chunking(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """分档处理"""
+    chunks = []
+    # 这里处理的逻辑是每次拆分文章时新建新的字符串将拆分的两端分别赋值给新字符串
+    while True:
+        if text:
+            para, separator, text = text.partition("\n\n")
+            while True:
+                if len(para) <= chunk_size:
+                    chunks.append(para)
+                    break
+                else:
+                    para_chunk = para[:chunk_size]
+                    para = para_chunk[-overlap:] + para[chunk_size:]
+                    chunks.append(para_chunk)
+        else:
+            break
+    return chunks
+
+def metadata_add(file_path: str, chunks: list[str]) -> list[dict]:
+    """元数据处理"""
+    final_chunks = []
+    for i, chunk in enumerate(chunks):
+        final_chunks.append(
+            {
+                "text": chunk,
+                "metadata": {
+                    "source": Path(file_path).name,
+                    "chunk_index": i
+                }
+            }
+        )
+    return final_chunks
+
+def processed_document(file_path: str, chunk_size: int = 300, overlap: int = 50) -> list[dict]:
+    """文档处理管线"""
+    text = file_read(file_path)
+    chunks = chunking(text, chunk_size, overlap)
+    return metadata_add(file_path, chunks)
+
+test_file_paths = [
+    "./test_documents/gemini_prompt.md",
+    "./test_documents/my_view_on_friendship.md"
+]
+
+def main():
+    print("测试开始\n")
+    for i, file_path in enumerate(test_file_paths, 1):
+        print(f"---Test{i}---\n")
+        document_chunks = processed_document(file_path)
+        for j, chunk in enumerate(document_chunks):
+            print(f"- chunk_{j}: ")
+            content = chunk.get("text")[:50]
+            metadata = chunk.get("metadata")
+            print(f"content: {content}")
+            print(f"metadata: {metadata}")
+        print("\n")
+    print("测试结束")
+
+if __name__ == "__main__":
+    main()
+
