@@ -10,7 +10,7 @@ client = AsyncOpenAI(
     base_url = QWEN_ALY_BASE_URL
 )
 
-async def get_embeddings(texts: list[str]) -> list[list[float]]:
+async def get_embeddings(texts: list[str]):
     response = await client.embeddings.create(
         model = "text-embedding-v1",
         input = texts

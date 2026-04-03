@@ -1,0 +1,7 @@
+anthropic
+chromadb
+openai
+pydantic
+pydantic-settings
+python-dotenv
+numpy
