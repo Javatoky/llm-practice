@@ -3,18 +3,19 @@ from collections.abc import AsyncGenerator
 
 from openai import AsyncOpenAI
 
-from config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
+from config import (DS_API_KEY, DS_BASE_URL, DS_MODEL, QWEN_API_KEY,
+                    QWEN_BASE_URL, QWEN_MODEL)
 
 client = AsyncOpenAI(
-    api_key = QWEN_API_KEY,
-    base_url = QWEN_BASE_URL
+    api_key = DS_API_KEY,
+    base_url = DS_BASE_URL
 )
 
 async def chat(messages : list[dict], user_input : str) -> AsyncGenerator[str, None]:
     messages.append({"role": "user", "content": user_input})
     response = await client.chat.completions.create(
-        model=QWEN_MODEL,
-        messages=messages,
+        model = DS_MODEL,
+        messages = messages,
         stream = True
     )
     reply = ""
@@ -42,14 +43,15 @@ messages = [
         Start：当任务启动后，先向顾客礼貌问好，询问其需要什么服务
         """},
 ]
-async def main():
-    while True:
-        print("想问什么？")
-        if(user_input := input()) == "quit":
-            break
-        async for token in chat(messages, user_input):
-            print(token, end="", flush = True)
-        print("\n")
-    print("下次再见")
+if __name__ == "__main__":
+    async def main():
+        while True:
+            print("想问什么？")
+            if(user_input := input()) == "quit":
+                break
+            async for token in chat(messages, user_input):
+                print(token, end="", flush = True)
+            print("\n")
+        print("下次再见")
 
-asyncio.run(main())
+    asyncio.run(main())

@@ -1,5 +1,6 @@
 # config.py
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,7 +12,9 @@ QWEN_ALY_BASE_URL = os.getenv("QWEN_ALY_BASE_URL", "https://dashscope.aliyuncs.c
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen3.5-plus")
 KIMI_MODEL = os.getenv("KIMI_MODEL", "kimi-k2.5")
 GLM_MODEL = os.getenv("GLM_MODEL", "glm-5")
-
+DS_API_KEY = os.getenv("DS_API_KEY")
+DS_BASE_URL = os.getenv("DS_BASE_URL")
+DS_MODEL = os.getenv("DS_MODEL")
 SYSTEM_PROMPT = """
 ## Role
 你是 BookHaven 在线书店的智能客服。
