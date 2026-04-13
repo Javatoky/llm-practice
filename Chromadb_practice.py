@@ -18,7 +18,6 @@ async def chromadb_storage():
     """向量数据库存储"""
     # 文档处理管线
     processed_documents = [process_document(filepath) for filepath in test_file_paths]      # 思考：这里是一次性读取，内存压力很大，或许我们应该实现一个惰性读取的方法
-    
     # embedding向量化
     embedding_results = [get_embeddings([chunk.get("text") for chunk in chunks]) for chunks in processed_documents]
     embedding_results = await asyncio.gather(*embedding_results)
