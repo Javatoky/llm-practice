@@ -45,11 +45,16 @@ system_prompt = """
         【来源】metacognitive_role.md
     """.strip()
 
-messages = [
-    {"role": "system", "content": system_prompt}
+test_file_paths = [
+    "./test_documents/gemini_prompt.md",
+    "./test_documents/my_view_on_friendship.md",
+    "./test_documents/ai_and_coding.md",
+    "./test_documents/metacognitive_role.md",
+    "./test_documents/personal_prioritization_under_multiple_tasks.md"
 ]
 
 class ReferenceTextEmptyError(Exception):
+    """错误：文本内容为空"""
     pass
 
 def readfile(filepath: str) -> str:
@@ -77,7 +82,7 @@ def get_chunks(text: str, chunk_size: int = 300, overlap: int = 50) -> list[str]
         else:
             start = 0
             while True:
-                if (end:=start + chunk_size) > length:
+                if (end:=start + chunk_size) >= length:
                     chunks.append(para[start: length])
                     break
                 chunks.append(para[start: end])
@@ -109,7 +114,7 @@ async def get_embeddings(texts: list[str]):
 
 def chromadb_storage(chunks: list[dict], chunk_embeddings: list[list[float]]):
     """存入Chromadb数据库"""
-    collection.add(
+    collection.upsert(
         ids = [f"{chunk.get('metadata').get('source')}_{chunk.get('metadata').get('chunk_index')}" for chunk in chunks],
         embeddings = chunk_embeddings,
         documents = [chunk["text"] for chunk in chunks],
@@ -118,13 +123,8 @@ def chromadb_storage(chunks: list[dict], chunk_embeddings: list[list[float]]):
 
 async def doc_process_pipeline(filepath: str):
     """文档处理流"""
-    try:
-        text = readfile(filepath)
-        chunks = get_chunks(text)
-    except ReferenceTextEmptyError:
-        raise
-    except ValueError:
-        raise
+    text = readfile(filepath)
+    chunks = get_chunks(text)
     processed_chunks = add_metadata(filepath, chunks)
     embeddings = await get_embeddings(chunks)
     chromadb_storage(processed_chunks, embeddings)
@@ -155,12 +155,12 @@ async def retrieve_info(query: str, top_k: int = 3, distance_threshold: float = 
     metadatas = results.get("metadatas")[0]
     distances = results.get("distances")[0]
     filtered_results = [
-        (doc, meta) for doc, meta, dict
+        (doc, meta) for doc, meta, dist
         in zip(documents, metadatas, distances)
-        if dict < distance_threshold
+        if dist < distance_threshold
     ]
     if not filtered_results:
-        raise ValueError
+        return None
     context_parts = []
     for i, (doc, meta) in enumerate(filtered_results, 1):
         source = meta.get("source")
@@ -168,11 +168,10 @@ async def retrieve_info(query: str, top_k: int = 3, distance_threshold: float = 
     context = "\n\n---\n\n".join(context_parts)
     return context
 
-async def QA_process(user_input: str):
+async def QA_process(user_input: str, messages: list[dict]):
     """问答过程"""
-    try:
-        context = await retrieve_info(user_input)
-    except ValueError:
+    context = await retrieve_info(user_input)
+    if not context:
         print("根据现有资料无法回答此问题")
         return
     messages.append(
@@ -185,11 +184,6 @@ async def QA_process(user_input: str):
         print(token, end = "", flush = True)
     print("\n")
 
-test_file_paths = [
-    "./test_documents/gemini_prompt.md",
-    "./test_documents/my_view_on_friendship.md"
-]
-
 async def main():
     """主流程"""
     empty_count = 0
@@ -199,13 +193,16 @@ async def main():
         except ReferenceTextEmptyError:
             empty_count += 1
     if empty_count == len(test_file_paths):
-        print("抱歉，当前资料库为空，无法完成问答")
+        print("抱歉，当前资料库为空，无法完成问答\n")
         return
+    messages = [
+        {"role": "system", "content": system_prompt}
+    ]
     while True:
         print("想问什么？")
         if (user_input:=input()) == "quit":
             break
-        await QA_process(user_input)
+        await QA_process(user_input, messages)
     print("下次再见👋")
 
 if __name__ == "__main__":
