@@ -1,8 +1,8 @@
 import asyncio
 
-from async_stream_chat import chat
-from Chromadb_practice import DB_NAME, METADATA, client
-from embedding_practice import get_embeddings
+from Phase_preparation.async_stream_chat import chat
+from .Chromadb_practice import DB_NAME, METADATA, client
+from .embedding_practice import get_embeddings
 
 
 def prompt_modification(filtered_results: list) -> str:

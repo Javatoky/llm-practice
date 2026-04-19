@@ -1,8 +1,8 @@
 import asyncio
 
 import chromadb
-from Document_chunk_loop import process_document, test_file_paths
-from embedding_practice import get_embeddings
+from .Document_chunk_loop import process_document, test_file_paths
+from .embedding_practice import get_embeddings
 
 test_cases = [
     "Gemini 3提示词中给Gemini设定的Goal",
