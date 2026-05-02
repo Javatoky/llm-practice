@@ -2,7 +2,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from openai import AsyncOpenAI
-
+from openai.types.chat import ChatCompletionMessage
+                               
 
 class NotSupportError(Exception):
     pass
@@ -48,18 +49,21 @@ class LLMBackend:
             else None
         )
 
-    async def chat(self, messages: list[dict], **kwargs) -> str:
-        """语言模型调用：非流式，返回完整文本。"""
+    async def chat_message(self, messages: list[dict], **kwargs) -> ChatCompletionMessage:
+        """底层语言模型调用接口"""
         if not self.config.supports_chat or self.chat_client is None:
             raise NotSupportError("当前配置不支持chat调用")
-
+        
         response = await self.chat_client.chat.completions.create(
-            model=self.config.chat_model,
-            messages=messages,
+            model = self.config.chat_model,
+            messages = messages,
             **kwargs,
         )
+        return response.choices[0].message
 
-        reply = response.choices[0].message.content or ""
+    async def chat(self, messages: list[dict], **kwargs) -> str:
+        """语言模型调用：非流式，返回完整文本。"""
+        reply = self.chat_message(messages, **kwargs).content or ""
         messages.append({"role": "assistant", "content": reply})
         return reply
 

@@ -47,4 +47,4 @@ Thumbs.db
 *.key
 .crt
 .cert
-
+**/temp_config.py

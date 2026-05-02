@@ -21,7 +21,11 @@ def chat(messages: list[dict]):
 # 函数的执行，包括tool_call解析、函数选择、所用函数
 def parse_tool_call(tool_call: dict):
     function_name = tool_call.function.name
-    kwargs = json.loads(tool_call.function.arguments)
+    try:
+        kwargs = json.loads(tool_call.function.arguments)
+    except json.JSONDecodeError:
+        raise
+    
     return (function_name, kwargs)
 
 def run_tool_call(function_name, **kwargs):     # 我的思考：在TOOLS中我们明确了各个函数的参数名，LLM传回一定会是以字典形式参数名与值一一对应，所以要解包字典获取参数
@@ -80,7 +84,7 @@ def main():
                     result = run_tool_call(function_name, **kwargs)
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": tool_call_id, 
+                        "tool_call_id": tool_call_id,
                         "content": result
                     })
             else:

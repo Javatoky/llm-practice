@@ -196,7 +196,7 @@ def parse_tool_call(tool_call: ChatCompletionMessageToolCall):
     function_name = tool_call.function.name
     try:
         kwargs = json.loads(tool_call.function.arguments)
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         raise
     else:
         return (function_name, kwargs)
@@ -220,7 +220,7 @@ async def run_tool(function_name: str, **kwargs):
         return json.dumps({"error": "参数错误：" + property_errors})
     return await func[0](**kwargs)
 
-async def tool_call_loop(tool_calls: list[ChatCompletionMessageToolCall]) -> dict[str: str]:
+async def tool_call_loop(tool_calls: list[ChatCompletionMessageToolCall]):
     """工具执行流程"""
     temp_results = []
     results = []

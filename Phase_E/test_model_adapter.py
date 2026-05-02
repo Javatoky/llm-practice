@@ -9,6 +9,7 @@ def make_config(
     embed_model: str | None = "text-embedding-v1",
     supports_embeddings: bool = True,
 ) -> ModelConfig:
+    """创建测试所用配置"""
     return ModelConfig(
         chat_model=chat_model,
         chat_api_key="sk-test",
