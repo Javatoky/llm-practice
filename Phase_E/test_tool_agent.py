@@ -1,16 +1,15 @@
 import pytest
 import asyncio
 import json
-from tool_agent import parse_tool_call, route_tool, invoke, get_weather, calculate, tool_call_loop, ToolNameError, ArgumentError
+from tool_agent import parse_tool_call, resolve_tool, invoke, get_weather, calculate, tool_call_loop, ToolNameError, ArgumentError
 from model_adapter import LLMBackend, ModelConfig
-from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionMessage
 from temp_config import QWEN_API_KEY, QWEN_ALY_API_KEY, QWEN_BASE_URL, QWEN_MODEL, QWEN_EMBED_MODEL
 
 def create_tool_call(
         tool_call_id : str | None = "call_abc123",
         func_name : str | None = "func",
         arguments : str | None  = json.dumps({"property": "123"}),
-        type : str = "function",
 ) -> ChatCompletionMessageToolCall:
     tool_call = ChatCompletionMessageToolCall(
         id = tool_call_id,
@@ -18,6 +17,17 @@ def create_tool_call(
         type = "function"
     )
     return tool_call
+
+
+class FakeBackend:
+    def __init__(self, message_to_return):
+        self.message_to_return = message_to_return
+        self.index = 0
+
+    async def chat_message(self, message:list[dict]) -> ChatCompletionMessage:
+        message = self.message_to_return[self.index]
+        self.index += 1
+        return message
 
 
 def test_parse_tool_call(): 
@@ -48,19 +58,21 @@ def test_route_tool():
     func2 = ("calculate", {"expression": "1 + 1"})
     wrong_func1 = ("embed", {"texts": ["你是谁", "我能成为世界上最厉害的工程师吗"]})
     wrong_func2 = ("get_weather", {"text": "如何写一份完美的提示词", "chunk_size": 300, "overlap": 50})
+    wrong_func3 = ("calculate", {"expression": "1 * 4.6", "type": "float"})
 
-    assert route_tool(*func1) == get_weather
-    assert route_tool(*func2) == calculate
+    assert resolve_tool(*func1) == get_weather
+    assert resolve_tool(*func2) == calculate
 
     with pytest.raises(ToolNameError, match = "未知工具名：embed"):
-        route_tool(*wrong_func1)
+        resolve_tool(*wrong_func1)
     
-    with pytest.raises(ArgumentError, match = "未找到参数：city;"):
-        route_tool(*wrong_func2)
+    with pytest.raises(ArgumentError, match = "参数缺失：{'city'}"):
+        resolve_tool(*wrong_func2)
+
+    with pytest.raises(ArgumentError, match = "存在多余参数：{'type'}"):
+        resolve_tool(*wrong_func3)
 
 def test_invoke():
-    
-    
     func1 = (get_weather, {"city": "上海"})
     func2 = (calculate, {"expression": "1 + 1"})
     wrong_func1 = (calculate, {"expression": "__import__('os').system('whoami')"})
@@ -79,14 +91,35 @@ def test_invoke():
     assert wrong_result3["success"] == False and "无法识别数学表达式" in wrong_result3["error"]
 
 
+# TODO(stage-e): add FakeBackend tests for tool_call_pipeline and tool_call_loop before final integration.
+
+
 TEST_CASES = [
     "北京今天天气怎么样？",
     "帮我算一下 789 * 321"
 ]
 
 root_prompt = f"""
-你是一个智能助手，能根据用户需求，选择是否调用Tool，从而解决问题
-"""
+    # Role: 你是一个多工具AI助手，名字叫Kopssen
+    # Capabilities and Constrains: 
+        - 你只能对用户的**问好**、**关于你能解答的问题的询问**、**与下面的两种工具调用相关的请求**这些话题进行解答回复
+        - 任何超出上面的问题和要求，都要礼貌的拒绝，并引导用户回到你所能涉及的话题
+        - 不可自行编造任何形式的信息，以你调用工具得到的信息诚实回复，否则先表示抱歉，并回复你办不到
+    # Instructions: 
+        - 用户向你问好，你要以活泼、可爱的风格积极回应
+        - 用户询问你**能力范畴**或**你都能解答什么问题**相关的问题，你回复自己可以查询指定城市的天气，帮助用户进行计算
+        - 用户询问你**查询指定城市的天气**，**帮助用户进行计算**，这两种类型问题时，要会调用相应Tool完成回复
+        - 如果Tool返回 success=false ， 请向用户说明失败原因，不得编造
+    # Knowledge: 
+        - 用户名：Javatoky
+        - 用户详细信息：一个大二的计算机专业的学生，正在学习Python编程和大模型应用，而且对提升自己的认知非常感兴趣
+    # Output Format: 
+        - 专业、简洁、友善
+        - 如果一次对话中有多个请求，你要结构化输出，例如：
+            用户:查询一下北京的天气、顺便帮我算一下2 * 5
+            你:北京的天气: 25摄氏度，晴
+            计算结果: 10
+""".strip()
 
 
 async def main():

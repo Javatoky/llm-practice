@@ -4,7 +4,7 @@ import asyncio
 import operator
 from typing import Callable
 from model_adapter import LLMBackend
-from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionMessage
 
 
 class ToolNameError(Exception):
@@ -55,45 +55,65 @@ TOOLS = [
 ]
 
 
+def wrap_ok_result(result: str) -> dict:
+    """包装成功结果"""
+    return {"success": True, "data": result}
+
+def wrap_fail_result(error: str) -> dict:
+    """包装失败结果"""
+    return {"success": False, "error": error}
+
+def build_assistant_tool_message(message: ChatCompletionMessage) -> dict :
+    """标准处理模型返回的message"""
+    return {
+        "role": "assistant",
+        "content": message.content or "",
+        "tool_calls": [
+            tool_call.model_dump(mode = "json", exclude_none = True)
+            for tool_call in message.tool_calls
+            or []
+        ],
+    }
+
+SAFE_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+}
+def safe_eval(expr: str) -> float:
+    """只允许基本四则运算的安全表达式求值。"""
+    tree = ast.parse(expr, mode="eval")
+    
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        elif isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return node.value
+        elif isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:
+            return SAFE_OPERATORS[type(node.op)](_eval(node.left), _eval(node.right))
+        else:
+            raise ValueError(f"不支持的表达式: {ast.dump(node)}")
+    
+    return _eval(tree)
+
 async def get_weather(city: str) -> dict:
     """查询天气"""
-    return {"success": True, "data": f'{city}：晴，25°C'}
-
+    return wrap_ok_result(f'{city}：晴，25°C')
 
 async def calculate(expression: str) -> dict:
     """计算表达式"""
-    SAFE_OPERATORS = {
-        ast.Add: operator.add,
-        ast.Sub: operator.sub,
-        ast.Mult: operator.mul,
-        ast.Div: operator.truediv,
-    }
-    def safe_eval(expr: str) -> float:
-        """只允许基本四则运算的安全表达式求值。"""
-        tree = ast.parse(expr, mode="eval")
-        
-        def _eval(node):
-            if isinstance(node, ast.Expression):
-                return _eval(node.body)
-            elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-                return node.value
-            elif isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:
-                return SAFE_OPERATORS[type(node.op)](_eval(node.left), _eval(node.right))
-            else:
-                raise ValueError(f"不支持的表达式: {ast.dump(node)}")
-        
-        return _eval(tree)
     if expression:
         try:
             result = safe_eval(expression)
         except ZeroDivisionError as e:
-            return {"success": False, "error": f"表达式有误：{e}"}
+            return wrap_fail_result(f"表达式有误：{e}")
         except ValueError as e:
-            return {"success": False, "error": f"错误：{e}"}
+            return wrap_fail_result(f"错误：{e}")
         else:
-            return {"success": True, "data": str(result)}
+            return wrap_ok_result(str(result))
     else:
-        return {"success": False, "error": f"无法识别数学表达式"}
+        return wrap_fail_result(f"无法识别数学表达式")
 
 
 def parse_tool_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict]:
@@ -107,7 +127,7 @@ def parse_tool_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict
     return (func_name, arguments)
 
 
-def route_tool(func_name: str, arguments: dict) -> Callable:
+def resolve_tool(func_name: str, arguments: dict) -> Callable:
     """工具路由"""
     tool_config = {
         "get_weather": (get_weather, ["city"]),
@@ -116,19 +136,25 @@ def route_tool(func_name: str, arguments: dict) -> Callable:
 
     if (tool_info:=tool_config.get(func_name, None)) is None:
         raise ToolNameError(f"未知工具名：{func_name}")
-    argument_errors = ""
+    argument_lacks = set()
     for argument in tool_info[1]:
         if argument not in arguments:
-            argument_errors += f'未找到参数：{argument};'
-    if argument_errors:
-        raise ArgumentError(f"{argument_errors}")
-    
+            argument_lacks.add(argument)
+    extra_arguments = set(arguments) - set(tool_info[1])
+    if argument_lacks:
+        raise ArgumentError(f"参数缺失：{argument_lacks}")
+    if extra_arguments:
+        raise ArgumentError(f"存在多余参数：{extra_arguments}")
+
     return tool_info[0]
 
 
 async def invoke(tool: Callable, arguments: dict) -> dict:
     """调用器"""
-    return await tool(**arguments)
+    try:
+        return await tool(**arguments)
+    except Exception as e:
+        return wrap_fail_result(f"工具执行失败：{type(e).__name__}: {e}")
 
 
 async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall]) -> list[tuple[str, dict]]:
@@ -141,13 +167,13 @@ async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall]) ->
         tool_call_id = tool_call.id
         try:
             func_name, arguments = parse_tool_call(tool_call)
-            tool = route_tool(func_name, arguments)
+            tool = resolve_tool(func_name, arguments)
         except json.JSONDecodeError as e:
-            results.append((tool_call_id, {"error": f"格式解析失败：{e}"}))
+            results.append((tool_call_id, wrap_fail_result(f"格式解析失败：{e}")))
         except ToolNameError as e:
-            results.append((tool_call_id, {"error": f"工具名错误：{e}"}))
+            results.append((tool_call_id, wrap_fail_result(f"工具名错误：{e}")))
         except ArgumentError as e:
-            results.append((tool_call_id, {"error": f"参数错误：{e}"}))
+            results.append((tool_call_id, wrap_fail_result(f"参数错误：{e}")))
         else:
             ids.append(tool_call_id)
             temp_results.append(invoke(tool, arguments))
@@ -163,18 +189,20 @@ async def tool_call_loop(backend: LLMBackend, messages: list[dict]) -> str:
     while True:
         message = await backend.chat_message(messages, tools = TOOLS)
         
-        if (tool_calls:=message.tool_calls) is not None:
-            messages.append(message)
+        if tool_calls:=message.tool_calls:
+            messages.append(build_assistant_tool_message(message))
             results = await tool_call_pipeline(tool_calls)
+
             for id, result in results:
                 messages.append({
                     "role": "tool",
                     "tool_call_id": id,
-                    "result": json.dumps(result)
+                    "content": json.dumps(result, ensure_ascii = False)
                 })
-        elif (content:=message.content) is not None:
-            messages.append(
-                {"role": "assistant", "content": content}
-            )
 
-            return content
+        content = message.content or ""
+        messages.append(
+            {"role": "assistant", "content": content}
+        )
+
+        return content
