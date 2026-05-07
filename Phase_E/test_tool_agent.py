@@ -1,10 +1,21 @@
-import pytest
 import asyncio
 import json
-from tool_agent import parse_tool_call, resolve_tool, invoke, get_weather, calculate, tool_call_loop, ToolNameError, ArgumentError
+import sys
+from pathlib import Path
+
+import pytest
 from model_adapter import LLMBackend, ModelConfig
-from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionMessage
-from temp_config import QWEN_API_KEY, QWEN_ALY_API_KEY, QWEN_BASE_URL, QWEN_MODEL, QWEN_EMBED_MODEL
+from openai.types.chat import (ChatCompletionMessage,
+                               ChatCompletionMessageToolCall)
+from tool_agent import (ArgumentError, ToolNameError, calculate, get_weather,
+                        invoke, parse_tool_call, resolve_tool, tool_call_loop)
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+from config import (QWEN_ALY_API_KEY, QWEN_API_KEY, QWEN_BASE_URL,
+                    QWEN_EMBED_MODEL, QWEN_MODEL)
+
 
 def create_tool_call(
         tool_call_id : str | None = "call_abc123",

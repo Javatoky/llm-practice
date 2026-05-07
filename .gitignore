@@ -35,6 +35,7 @@ htmlcov/
 
 # Chromadb
 chromadb/
+**/chromadb
 
 # OS
 .DS_Store

@@ -63,7 +63,7 @@ class LLMBackend:
 
     async def chat(self, messages: list[dict], **kwargs) -> str:
         """语言模型调用：非流式，返回完整文本。"""
-        reply = self.chat_message(messages, **kwargs).content or ""
+        reply = (await self.chat_message(messages, **kwargs)).content or ""
         messages.append({"role": "assistant", "content": reply})
         return reply
 
