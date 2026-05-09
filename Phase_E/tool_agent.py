@@ -4,7 +4,6 @@ import json
 import operator
 from typing import Callable
 
-from model_adapter import LLMBackend
 from openai.types.chat import (ChatCompletionMessage,
                                ChatCompletionMessageToolCall)
 
@@ -34,7 +33,7 @@ TOOLS = [
                     }
                 },
                 "required": ["city"]
-            }   
+            }
         }
     },
     {
@@ -64,17 +63,22 @@ def wrap_fail_result(error: str) -> dict:
     """包装失败结果"""
     return {"success": False, "error": error}
 
-def build_assistant_tool_message(message: ChatCompletionMessage) -> dict :
-    """标准处理模型返回的message"""
-    return {
+def build_assistant_message(message: ChatCompletionMessage) -> dict:
+    """标准处理模型返回的 message"""
+    result = {
         "role": "assistant",
         "content": message.content or "",
-        "tool_calls": [
+    }
+    # 如果有 tool_calls，添加进去
+    if message.tool_calls:
+        result["tool_calls"] = [
             tool_call.model_dump(mode = "json", exclude_none = True)
             for tool_call in message.tool_calls
-            or []
-        ],
-    }
+        ]
+    # 如果有 reasoning_content，必须传回 API（OpenAI 兼容 API 要求）
+    if hasattr(message, 'reasoning_content') and message.reasoning_content:
+        result["reasoning_content"] = message.reasoning_content
+    return result
 
 SAFE_OPERATORS = {
     ast.Add: operator.add,
@@ -85,7 +89,7 @@ SAFE_OPERATORS = {
 def safe_eval(expr: str) -> float:
     """只允许基本四则运算的安全表达式求值。"""
     tree = ast.parse(expr, mode="eval")
-    
+
     def _eval(node):
         if isinstance(node, ast.Expression):
             return _eval(node.body)
@@ -94,8 +98,8 @@ def safe_eval(expr: str) -> float:
         elif isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:
             return SAFE_OPERATORS[type(node.op)](_eval(node.left), _eval(node.right))
         else:
-            raise ValueError(f"不支持的表达式: {ast.dump(node)}")
-    
+            raise ValueError(f"不支持的表达式：{ast.dump(node)}")
+
     return _eval(tree)
 
 async def get_weather(city: str) -> dict:
@@ -157,7 +161,11 @@ async def invoke(tool: Callable, arguments: dict) -> dict:
         return wrap_fail_result(f"工具执行失败：{type(e).__name__}: {e}")
 
 
-async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall], tool_registry: dict[str, tuple[Callable, list[str]]]) -> list[tuple[str, dict]]:
+async def tool_call_pipeline(
+    tool_calls: list[ChatCompletionMessageToolCall],
+    tool_registry: dict[str, tuple[Callable, list[str]]],
+    tool_debug: dict[str, str | list[str]],
+) -> list[tuple[str, dict]]:
     """工具调用流"""
     results = []
     ids = []
@@ -167,6 +175,8 @@ async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall], to
         tool_call_id = tool_call.id
         try:
             func_name, arguments = parse_tool_call(tool_call)
+            if tool_debug.get("switch"):
+                tool_debug.get("tool_record").append(func_name)
             tool = resolve_tool(func_name, arguments, tool_registry)
         except json.JSONDecodeError as e:
             results.append((tool_call_id, wrap_fail_result(f"格式解析失败：{e}")))
@@ -177,34 +187,8 @@ async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall], to
         else:
             ids.append(tool_call_id)
             temp_results.append(invoke(tool, arguments))
-    
+
     temp_results = await asyncio.gather(*temp_results)
     results.extend(zip(ids, temp_results))
 
     return results
-
-
-async def tool_call_loop(backend: LLMBackend, messages: list[dict], tools: list[dict] = TOOLS ,tool_registry: dict[str, tuple[Callable, list[str]]] = TOOL_REGISTRY) -> str:
-    """工具调用循环"""
-    while True:
-        message = await backend.chat_message(messages, tools = tools)
-
-        if tool_calls:=message.tool_calls:
-            messages.append(build_assistant_tool_message(message))
-            results = await tool_call_pipeline(tool_calls, tool_registry)
-
-            for id, result in results:
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": id,
-                    "content": json.dumps(result, ensure_ascii = False)
-                })
-            # 工具调用完成后，再次调用模型生成最终回复
-            continue
-
-        content = message.content or ""
-        messages.append(
-            {"role": "assistant", "content": content}
-        )
-
-        return content

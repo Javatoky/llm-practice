@@ -4,11 +4,12 @@ import sys
 from pathlib import Path
 
 import pytest
+from agent_loop import tool_call_loop
 from model_adapter import LLMBackend, ModelConfig
 from openai.types.chat import (ChatCompletionMessage,
                                ChatCompletionMessageToolCall)
 from tool_agent import (ArgumentError, ToolNameError, calculate, get_weather,
-                        invoke, parse_tool_call, resolve_tool, tool_call_loop)
+                        invoke, parse_tool_call, resolve_tool)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

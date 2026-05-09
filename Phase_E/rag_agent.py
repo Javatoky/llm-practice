@@ -122,7 +122,12 @@ async def retrieve(backend: LLMBackend, query: str, collection_name: str, top_k:
     #context = "\n\n---\n\n".join(context_parts)
     return texts
 
-async def answer_with_rag(backend: LLMBackend, user_input: str, collection_name: str , messages: list[dict]) -> str:
+async def answer_with_rag(
+    backend: LLMBackend,
+    user_input: str,
+    collection_name: str,
+    messages: list[dict]
+) -> str:
     """问答过程"""
     texts = await retrieve(backend, user_input, collection_name)
     if not texts:

@@ -1,8 +1,10 @@
 import copy
 
+from agent_loop import tool_call_loop
+from debug_config import AgentResult
 from model_adapter import LLMBackend
 from rag_agent import retrieve
-from tool_agent import calculate, get_weather, tool_call_loop
+from tool_agent import calculate, get_weather
 
 TOOLS = [
     {
@@ -68,7 +70,13 @@ def make_search_documents_tool(backend: LLMBackend, collection_name: str):
     
     return search_documents
 
-async def hybrid_agent_reply(backend: LLMBackend, user_input: str, messages: list[dict], collection_name: str) -> str:
+async def hybrid_agent_reply(
+    backend: LLMBackend,
+    user_input: str,
+    messages: list[dict],
+    collection_name: str,
+    debug: bool = False
+) -> str | AgentResult:
     tool_registry = {
         "get_weather": (get_weather, ["city"]),
         "calculate": (calculate, ["expression"]),
@@ -77,9 +85,9 @@ async def hybrid_agent_reply(backend: LLMBackend, user_input: str, messages: lis
 
     temp_messages = copy.deepcopy(messages)
     temp_messages.append({"role": "user", "content": user_input})
-    result = await tool_call_loop(backend, temp_messages, TOOLS, tool_registry)
+    answer = await tool_call_loop(backend, temp_messages, TOOLS, tool_registry, debug)
 
     messages.append({"role": "user", "content": user_input})
-    messages.append({"role": "assistant", "content": result})
+    messages.append({"role": "assistant", "content": answer})
     
-    return result
+    return answer
