@@ -1,10 +1,12 @@
 import ast
-import json
 import asyncio
+import json
 import operator
 from typing import Callable
+
 from model_adapter import LLMBackend
-from openai.types.chat import ChatCompletionMessageToolCall, ChatCompletionMessage
+from openai.types.chat import (ChatCompletionMessage,
+                               ChatCompletionMessageToolCall)
 
 
 class ToolNameError(Exception):
@@ -53,7 +55,6 @@ TOOLS = [
         }
     }
 ]
-
 
 def wrap_ok_result(result: str) -> dict:
     """包装成功结果"""
@@ -115,6 +116,10 @@ async def calculate(expression: str) -> dict:
     else:
         return wrap_fail_result(f"无法识别数学表达式")
 
+TOOL_REGISTRY = {
+        "get_weather": (get_weather, ["city"]),
+        "calculate": (calculate, ["expression"]),
+    }
 
 def parse_tool_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict]:
     """工具请求解析"""
@@ -127,14 +132,9 @@ def parse_tool_call(tool_call: ChatCompletionMessageToolCall) -> tuple[str, dict
     return (func_name, arguments)
 
 
-def resolve_tool(func_name: str, arguments: dict) -> Callable:
+def resolve_tool(func_name: str, arguments: dict, tool_registry: dict[str, tuple[Callable, list[str]]]) -> Callable:
     """工具路由"""
-    tool_config = {
-        "get_weather": (get_weather, ["city"]),
-        "calculate": (calculate, ["expression"])
-    }
-
-    if (tool_info:=tool_config.get(func_name, None)) is None:
+    if (tool_info:=tool_registry.get(func_name, None)) is None:
         raise ToolNameError(f"未知工具名：{func_name}")
     argument_lacks = set()
     for argument in tool_info[1]:
@@ -157,7 +157,7 @@ async def invoke(tool: Callable, arguments: dict) -> dict:
         return wrap_fail_result(f"工具执行失败：{type(e).__name__}: {e}")
 
 
-async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall]) -> list[tuple[str, dict]]:
+async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall], tool_registry: dict[str, tuple[Callable, list[str]]]) -> list[tuple[str, dict]]:
     """工具调用流"""
     results = []
     ids = []
@@ -167,7 +167,7 @@ async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall]) ->
         tool_call_id = tool_call.id
         try:
             func_name, arguments = parse_tool_call(tool_call)
-            tool = resolve_tool(func_name, arguments)
+            tool = resolve_tool(func_name, arguments, tool_registry)
         except json.JSONDecodeError as e:
             results.append((tool_call_id, wrap_fail_result(f"格式解析失败：{e}")))
         except ToolNameError as e:
@@ -184,14 +184,14 @@ async def tool_call_pipeline(tool_calls: list[ChatCompletionMessageToolCall]) ->
     return results
 
 
-async def tool_call_loop(backend: LLMBackend, messages: list[dict]) -> str:
+async def tool_call_loop(backend: LLMBackend, messages: list[dict], tools: list[dict] = TOOLS ,tool_registry: dict[str, tuple[Callable, list[str]]] = TOOL_REGISTRY) -> str:
     """工具调用循环"""
     while True:
-        message = await backend.chat_message(messages, tools = TOOLS)
-        
+        message = await backend.chat_message(messages, tools = tools)
+
         if tool_calls:=message.tool_calls:
             messages.append(build_assistant_tool_message(message))
-            results = await tool_call_pipeline(tool_calls)
+            results = await tool_call_pipeline(tool_calls, tool_registry)
 
             for id, result in results:
                 messages.append({
@@ -199,6 +199,8 @@ async def tool_call_loop(backend: LLMBackend, messages: list[dict]) -> str:
                     "tool_call_id": id,
                     "content": json.dumps(result, ensure_ascii = False)
                 })
+            # 工具调用完成后，再次调用模型生成最终回复
+            continue
 
         content = message.content or ""
         messages.append(

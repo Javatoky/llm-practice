@@ -68,9 +68,6 @@ async def main():
             {"role": "system", "content": system_prompt}
         ]
         print(f"用户：{case}")
-        messages.append(
-            {"role": "user", "content": case}
-        )
         reply = await answer_with_rag(backend, case, "my_documents", messages)
         print(f"助手：{reply}")
 

@@ -8,6 +8,14 @@ import chromadb
 
 chromadb_client = chromadb.PersistentClient(path = str(Path(__file__).parent / "chromadb"))
 
+RAG_CONFIG = {
+    "top_k": 3,
+    "distance_threshold": 0.7
+}
+
+def get_chromadb_client(path_str: str = "../chromadb"):
+    return chromadb.PersistentClient(path = str)
+
 def readfile(filepath: str) -> str:
     """读取文本"""
     path = Path(filepath)
@@ -76,11 +84,14 @@ async def build_vector_store(backend: LLMBackend, filepaths: list[str], collecti
         embeddings = await backend.embed(chunks)
         store_into_chromadb(collection, processed_chunks, embeddings)
 
-async def retrieve(backend: LLMBackend, query: str, collection_name: str, top_k: int = 3, distance_threshold: float = 0.7) -> list[dict]:
+async def retrieve(backend: LLMBackend, query: str, collection_name: str, top_k: int = RAG_CONFIG["top_k"], distance_threshold: float = RAG_CONFIG["distance_threshold"]) -> list[dict]:
     """信息检索"""
-    collection = chromadb_client.get_collection(
-        name = collection_name,
-    )
+    try:
+        collection = chromadb_client.get_collection(
+            name = collection_name,
+        )
+    except ValueError as e:
+        raise ValueError(f"Collection not found: {collection_name}")
 
     embedding = await backend.embed([query])
     results = collection.query(
@@ -92,7 +103,7 @@ async def retrieve(backend: LLMBackend, query: str, collection_name: str, top_k:
     metadatas = results.get("metadatas")[0]
     distances = results.get("distances")[0]
     filtered_results = [
-        (doc, meta) for doc, meta, dist
+        (doc, meta, dist) for doc, meta, dist
         in zip(documents, metadatas, distances)
         if dist < distance_threshold
     ]
@@ -100,11 +111,12 @@ async def retrieve(backend: LLMBackend, query: str, collection_name: str, top_k:
         return []
     
     texts: list[dict] = []
-    for doc, meta in filtered_results:
+    for doc, meta, dist in filtered_results:
         texts.append({
             "reference_text": f"{doc}",
             "source": f"{meta.get('source')}",
-            "chunk_index": f"{meta.get('chunk_index')}"
+            "chunk_index": f"{meta.get('chunk_index')}",
+            "distance": f"{dist}"
         })
         #context_parts.append(f"{i}. 来源：{source}\n{doc}")
     #context = "\n\n---\n\n".join(context_parts)
@@ -114,16 +126,23 @@ async def answer_with_rag(backend: LLMBackend, user_input: str, collection_name:
     """问答过程"""
     texts = await retrieve(backend, user_input, collection_name)
     if not texts:
-        return f"根据现有资料无法回答此问题"
+        reply = f"根据现有资料无法回答此问题"
+        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "assistant", "content": reply})
+        return reply
     
     temp_messages = copy.deepcopy(messages)
     temp_messages.append(
         {
-            "role": "user", "content":
-            f"【参考文本信息】\n{json.dumps(texts)}\n\n【用户问题】{user_input}"
+            "role": "user", 
+            "content":
+                f"【参考文本信息】\n"
+                f"{json.dumps(texts, ensure_ascii=False)}\n\n"
+                f"【用户问题】{user_input}"
         }
     )
     reply = await backend.chat(temp_messages)
+
     messages.append(
         {"role": "user", "content": user_input}
     )
